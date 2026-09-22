@@ -14,6 +14,7 @@ const SECTIONS = [
   { id: 'news', full: 'خبرهای روز', short: 'خبرها' },
   { id: 'instagram', full: 'تولید محتوای اینستا', short: 'اینستا' },
   { id: 'linkedin', full: 'لینکدین', short: 'لینکدین' },
+  { id: 'progress', full: 'جدول پیشرفت', short: 'پیشرفت' },
   { id: 'article', full: 'مقاله', short: 'مقاله' },
 ];
 
@@ -26,6 +27,14 @@ const CATS = [
   ['controversy', 'حواشی'],
   ['iran', 'ایران و منطقه'],
 ];
+// رنگ هر بستر — با اعتبارسنج رنگ نمودار چک شده (رنگ‌کوری و کنتراست روی سفید)
+const PLATFORMS = {
+  instagram: { name: 'اینستاگرام', color: '#c9507f' },
+  linkedin: { name: 'لینکدین', color: '#2a78d6' },
+  article: { name: 'مقاله', color: '#4a3aa7' },
+};
+const ACTIVITY_PATH = 'دفترچه/فعالیت.json';
+const TOTAL_WEEKS = 13;
 const catName = (id) => (CATS.find((c) => c[0] === id) || [, 'دیگر'])[1];
 
 let KEY = null;
@@ -173,7 +182,7 @@ async function send(item, sentId, okMsg) {
   try {
     await sendInbox(item);
     markSent(sentId, { kind: item.kind, text: item.text || '' });
-    toast(okMsg);
+    if (okMsg) toast(okMsg);
     return true;
   } catch (e) {
     if (e.message !== 'no-token') toast(e.message === '401' ? 'اتصال منقضی شده؛ از «اتصال» دوباره وصل کن' : 'فرستاده نشد؛ اینترنت را چک کن و دوباره بزن');
@@ -353,6 +362,7 @@ function newsCard(it) {
 /* ───────── تولید محتوای اینستا ───────── */
 
 async function viewInstagram(root) {
+  await loadActivity().catch(() => null);
   const all = manifest.entries.filter((e) => e.type === 'instagram').sort((a, b) => a.date.localeCompare(b.date));
   const today = tehranToday();
   const week = Math.max(1, weekOf(today));
@@ -445,7 +455,8 @@ function igCard(d) {
       h('div', { class: 'block-h' }, h('h4', { text: 'هشتگ‌ها' }), copyBtn(d.hashtags.join(' '))),
       h('div', { class: 'tags' }, d.hashtags.map((t) => h('span', { text: t })))),
     block('برای ضبط', d.notes, 'caption', false),
-    (d.sources || []).length && h('details', { class: 'more' }, h('summary', { text: 'منابع' }), sourcesEl(d.sources)));
+    (d.sources || []).length && h('details', { class: 'more' }, h('summary', { text: 'منابع' }), sourcesEl(d.sources)),
+    postButtons(d, 'instagram'));
 }
 
 function downloadWeek(w, entries) {
@@ -468,6 +479,7 @@ function downloadWeek(w, entries) {
 /* ───────── لینکدین ───────── */
 
 async function viewLinkedin(root) {
+  await loadActivity().catch(() => null);
   const entries = manifest.entries.filter((e) => e.type === 'linkedin').sort((a, b) => b.date.localeCompare(a.date));
   root.append(...header('تحلیلی‌تر از همه‌جا', 'لینکدین', 'پست‌های آماده؛ تأیید کن یا نظرت را بگو.'));
   const sec = h('div', { class: 'sec' });
@@ -477,32 +489,13 @@ async function viewLinkedin(root) {
 }
 
 function liCard(p) {
-  const sent = getSent();
-  const approved = ['approved', 'posted'].includes(p.status) || sent['ap-' + p.id];
   const full = [p.text_en, p.text_fa].filter(Boolean).join('\n\n');
   const box = commentBox(p.id, 'linkedin', 'چه چیزی را دوست نداشتی یا باید عوض شود؟');
-  const actions = h('div', { class: 'actions' });
-  function renderActions(isApproved) {
-    fill(actions,
-      isApproved
-        ? [
-          h('span', { class: 'pill ok', text: p.status === 'posted' ? 'منتشر شد' : 'تأیید شد' }),
-          copyBtn(full, 'کپی متن'),
-          h('a', { class: 'btn', href: 'https://www.linkedin.com/feed/?shareActive=true&text=' + encodeURIComponent(full), target: '_blank', rel: 'noopener noreferrer' }, 'باز کردن لینکدین'),
-        ]
-        : h('button', {
-          class: 'btn primary', type: 'button',
-          onclick: async (ev) => {
-            const b = ev.currentTarget;
-            if (!confirm('این پست تأیید شود؟')) return;
-            b.disabled = true;
-            if (await send({ kind: 'approve', section: 'linkedin', target: p.id }, 'ap-' + p.id, 'تأیید شد')) renderActions(true);
-            else b.disabled = false;
-          },
-        }, 'تأیید'),
-      h('button', { class: 'btn', type: 'button', onclick: () => { box.hidden = !box.hidden; if (!box.hidden) box.querySelector('textarea').focus(); } }, 'نظر روژان'));
-  }
-  renderActions(approved);
+  const actions = postButtons(p, 'linkedin', () => [
+    copyBtn(full, 'کپی متن'),
+    h('a', { class: 'btn', href: 'https://www.linkedin.com/feed/?shareActive=true&text=' + encodeURIComponent(full), target: '_blank', rel: 'noopener noreferrer' }, 'باز کردن لینکدین'),
+    h('button', { class: 'btn', type: 'button', onclick: () => { box.hidden = !box.hidden; if (!box.hidden) box.querySelector('textarea').focus(); } }, 'نظر روژان'),
+  ]);
   return h('article', { class: 'card' },
     h('div', { class: 'meta' }, h('span', { class: 'pill', text: faDate(p.date) }), statusPill(p.status), p.lang === 'bi' && h('span', { class: 'pill', text: 'دوزبانه' })),
     h('h3', { text: p.title }),
@@ -568,6 +561,439 @@ function arCard(a) {
     box);
 }
 
+/* ───────── فعالیت روژان (تأیید، پست شد، آمار) — در مخزن خصوصی استودیو ───────── */
+
+let activity = null;
+let activitySha = null;
+
+function ghHeaders() {
+  return { Authorization: 'Bearer ' + store.get(LS.token), Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+}
+function activityUrl() {
+  return `https://api.github.com/repos/${OWNER}/${INBOX_REPO}/contents/${ACTIVITY_PATH.split('/').map(encodeURIComponent).join('/')}`;
+}
+function b64ToUtf8(b64) {
+  return new TextDecoder().decode(b64ToBytes(b64.replace(/\s/g, '')));
+}
+
+async function loadActivity(force) {
+  if (!store.get(LS.token)) return null;
+  if (activity && !force) return activity;
+  const res = await fetch(activityUrl() + '?ref=main', { headers: ghHeaders(), cache: 'no-store' });
+  if (res.status === 404) {
+    activity = { posts: {}, stats: {}, followers: [] };
+    activitySha = null;
+    return activity;
+  }
+  if (!res.ok) throw new Error(String(res.status));
+  const j = await res.json();
+  activity = JSON.parse(b64ToUtf8(j.content));
+  activity.posts = activity.posts || {};
+  activity.stats = activity.stats || {};
+  activity.followers = activity.followers || [];
+  activitySha = j.sha;
+  return activity;
+}
+
+async function saveActivity(mutate, message) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await loadActivity(attempt > 0);
+    mutate(activity);
+    const res = await fetch(activityUrl(), {
+      method: 'PUT',
+      headers: ghHeaders(),
+      body: JSON.stringify({ message, content: utf8ToB64(JSON.stringify(activity, null, 2)), sha: activitySha || undefined }),
+    });
+    if (res.ok) {
+      activitySha = (await res.json()).content.sha;
+      return;
+    }
+    if (res.status !== 409 && res.status !== 422) throw new Error(String(res.status));
+  }
+  throw new Error('conflict');
+}
+
+async function act(mutate, message, okMsg) {
+  if (!store.get(LS.token)) {
+    openSettings(true);
+    return false;
+  }
+  try {
+    await saveActivity(mutate, message);
+    if (okMsg) toast(okMsg);
+    return true;
+  } catch (e) {
+    activity = null; // دفعه‌ی بعد از نو خوانده شود
+    toast(e.message === '401' ? 'اتصال منقضی شده؛ از «اتصال» دوباره وصل کن' : 'ثبت نشد؛ اینترنت را چک کن و دوباره بزن');
+    return false;
+  }
+}
+
+function postState(entry) {
+  const a = (activity && activity.posts[entry.id]) || {};
+  return {
+    approved: !!(a.approvedAt || getSent()['ap-' + entry.id] || ['approved', 'posted', 'published'].includes(entry.status)),
+    postedAt: a.postedAt || (['posted', 'published'].includes(entry.status) ? entry.date + 'T12:00:00Z' : null),
+  };
+}
+
+// دکمه‌های «تأیید متن» و «پست شد» — کنار هر متن اینستاگرام و لینکدین
+function postButtons(entry, platform, extra = () => []) {
+  const wrap = h('div', { class: 'actions' });
+  const render = () => {
+    const st = postState(entry);
+    fill(wrap,
+      st.approved
+        ? h('span', { class: 'pill ok', text: 'متن تأیید شد ✓' })
+        : h('button', {
+          class: 'btn', type: 'button',
+          onclick: async (ev) => {
+            const b = ev.currentTarget;
+            b.disabled = true;
+            const ok = await send({ kind: 'approve', section: platform, target: entry.id }, 'ap-' + entry.id, null);
+            if (ok) await act((A) => { A.posts[entry.id] = { ...(A.posts[entry.id] || {}), platform, date: entry.date, approvedAt: new Date().toISOString() }; }, `تأیید متن ${entry.id}`, 'متن تأیید شد');
+            render();
+          },
+        }, 'تأیید متن'),
+      st.postedAt
+        ? h('span', { class: 'pill ok', text: 'پست شد ✓ ' + faDate(st.postedAt.slice(0, 10), { day: 'numeric', month: 'long' }) })
+        : h('button', {
+          class: 'btn primary', type: 'button',
+          onclick: async (ev) => {
+            const b = ev.currentTarget;
+            if (!confirm(platform === 'instagram' ? 'این ویدیو را پست کردی؟' : 'این پست را منتشر کردی؟')) return;
+            b.disabled = true;
+            const ok = await act((A) => { A.posts[entry.id] = { ...(A.posts[entry.id] || {}), platform, date: entry.date, postedAt: new Date().toISOString() }; }, `پست شد ${entry.id}`, 'ثبت شد — در جدول پیشرفت آمد');
+            if (ok) render(); else b.disabled = false;
+          },
+        }, platform === 'instagram' ? 'ویدیو پست شد' : 'پست شد'),
+      extra());
+  };
+  render();
+  return wrap;
+}
+
+/* ───────── برنامه و شمارش ───────── */
+
+// روزهای انتشار هر بستر (هفته‌ی ۱ و ۲ سبک‌تر؛ اولین مقاله جمعه‌ی هفته‌ی ۲)
+function platformsOn(iso) {
+  const w = weekOf(iso);
+  if (w < 1 || w > TOTAL_WEEKS) return [];
+  const light = w <= 2;
+  const dow = new Date(iso + 'T12:00:00Z').getUTCDay(); // ۶ شنبه، ۰ یکشنبه، ... ۵ جمعه
+  return {
+    6: ['instagram'],
+    0: [],
+    1: light ? [] : ['instagram', 'linkedin'],
+    2: ['linkedin'],
+    3: ['instagram'],
+    4: ['linkedin'],
+    5: w === 1 ? [] : ['article'],
+  }[dow];
+}
+function weekDates(week) {
+  const start = PLAN_START + (week - 1) * 7 * DAY;
+  return [...Array(7)].map((_, i) => new Date(start + i * DAY).toISOString().slice(0, 10));
+}
+function plannedIn(week, platform) {
+  return weekDates(week).filter((d) => platformsOn(d).includes(platform)).length;
+}
+function postedList() {
+  const out = [];
+  const seen = new Set();
+  if (activity) {
+    for (const [id, a] of Object.entries(activity.posts)) {
+      if (a.postedAt && a.date && a.platform) { out.push({ id, ...a }); seen.add(id); }
+    }
+  }
+  for (const e of manifest.entries) {
+    if (e.type === 'article' && e.status === 'published' && !seen.has(e.id)) out.push({ id: e.id, platform: 'article', date: e.date, postedAt: e.date });
+  }
+  return out;
+}
+
+/* ───────── نمودار: ابزارهای کوچک ───────── */
+
+const NS = 'http://www.w3.org/2000/svg';
+function sv(tag, attrs, ...kids) {
+  const el = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) if (v != null) el.setAttribute(k, v);
+  for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return el;
+}
+// ستون با سر گرد ۴px و پایه‌ی صاف
+function colPath(x, y, w, y0) {
+  const r = Math.min(4, w / 2, y0 - y);
+  return `M${x},${y0}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y0}Z`;
+}
+function tipEl() {
+  let t = document.getElementById('tip');
+  if (!t) { t = h('div', { id: 'tip', class: 'tip', role: 'tooltip' }); document.body.append(t); }
+  return t;
+}
+// راهنمای شناور: اول مقدار (پررنگ)، بعد توضیح
+function bindTip(el, lines) {
+  const show = (x, y) => {
+    const t = tipEl();
+    fill(t, lines.map((l, i) => h('div', { class: 'tip-row' },
+      l.color && h('i', { style: 'background:' + l.color }),
+      i === 0 ? h('b', { text: l.text }) : h('span', { text: l.text }))));
+    t.style.display = 'block';
+    t.style.left = Math.min(window.innerWidth - t.offsetWidth - 8, Math.max(8, x - t.offsetWidth / 2)) + 'px';
+    t.style.top = Math.max(8, y - t.offsetHeight - 14) + 'px';
+  };
+  const hide = () => { tipEl().style.display = 'none'; };
+  el.addEventListener('pointermove', (e) => show(e.clientX, e.clientY));
+  el.addEventListener('pointerleave', hide);
+  el.addEventListener('focus', () => { const r = el.getBoundingClientRect(); show(r.left + r.width / 2, r.top); });
+  el.addEventListener('blur', hide);
+  el.setAttribute('tabindex', '0');
+}
+function legend(items) {
+  return h('div', { class: 'legend' }, items.map((it) => h('span', null, h('i', { class: it.dash ? 'dash' : '', style: '--c:' + it.color }), it.name)));
+}
+
+/* ───────── جدول پیشرفت ───────── */
+
+async function viewProgress(root) {
+  await loadActivity().catch(() => null);
+  const today = tehranToday();
+  const week = Math.min(TOTAL_WEEKS, Math.max(1, weekOf(today)));
+  root.append(...header('آمار و برنامه', 'جدول پیشرفت', 'از شنبه ۴ مهر ۱۴۰۵ تا جمعه ۴ دی — ۱۳ هفته'));
+
+  // ── برنامه‌ی هفته (شنبه تا جمعه)
+  const posts = postedList();
+  const done = (iso, p) => posts.some((x) => x.date === iso && x.platform === p);
+  root.append(h('div', { class: 'sec' },
+    h('div', { class: 'sec-h' }, h('h2', { text: 'برنامه‌ی هفته' }), h('span', { class: 'rule' }), h('span', { class: 'fine', text: `هفته‌ی ${faNum(week)} از ${faNum(TOTAL_WEEKS)}` })),
+    h('div', { class: 'sched', role: 'table', 'aria-label': 'برنامه‌ی هفته، شنبه تا جمعه' },
+      weekDates(week).map((iso) => {
+        const ps = platformsOn(iso);
+        return h('div', { class: 'sched-day' + (iso === today ? ' today' : ''), role: 'row' },
+          h('div', { class: 'sd-h', role: 'rowheader' }, h('b', { text: faDate(iso, { weekday: 'long' }) }), h('span', { text: faDate(iso, { day: 'numeric', month: 'long' }) })),
+          h('div', { class: 'sd-b', role: 'cell' },
+            ps.length
+              ? ps.map((p) => h('span', { class: 'plat' + (done(iso, p) ? ' is-done' : '') }, h('i', { style: 'background:' + PLATFORMS[p].color, 'aria-hidden': 'true' }), PLATFORMS[p].name, done(iso, p) && h('b', { class: 'tick-ok', text: ' ✓', 'aria-label': 'انجام شد' })))
+              : h('span', { class: 'rest', text: 'استراحت' })));
+      })),
+    week <= 2 && h('p', { class: 'fine', style: 'margin-top:10px', text: 'دو هفته‌ی اول سبک‌تر است. از هفته‌ی ۳ (شنبه ۱۸ مهر) برنامه کامل می‌شود: اینستاگرام شنبه، دوشنبه و چهارشنبه؛ لینکدین دوشنبه، سه‌شنبه و پنجشنبه؛ مقاله جمعه.' })));
+
+  if (!activity) {
+    root.append(h('div', { class: 'sec feedback' },
+      h('h2', { text: 'برای ثبت و دیدن آمار، اول «اتصال» را روشن کن' }),
+      h('p', { class: 'fb-sub', text: 'دکمه‌های «پست شد» و آمار هر پست بعد از اتصال کار می‌کنند و روی گوشی و کامپیوتر یکی می‌شوند.' }),
+      h('div', { class: 'actions' }, h('button', { class: 'btn primary', type: 'button', onclick: () => openSettings(false) }, 'اتصال'))));
+  }
+
+  // ── عددهای اصلی
+  const thisWeekPlanned = Object.keys(PLATFORMS).reduce((n, p) => n + plannedIn(week, p), 0);
+  const thisWeekDone = posts.filter((x) => weekOf(x.date) === week).length;
+  const ig = (activity && activity.followers.filter((f) => f.instagram)) || [];
+  const lastIg = ig.length ? ig[ig.length - 1].instagram : null;
+  const rates = Object.entries((activity && activity.stats) || {})
+    .filter(([id, st]) => id.startsWith('ig-') && st.views > 0 && st.saves != null)
+    .map(([, st]) => st.saves / st.views);
+  const avgRate = rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null;
+  root.append(h('div', { class: 'sec tiles' },
+    tile('این هفته', `${faNum(thisWeekDone)} از ${faNum(thisWeekPlanned)}`, 'پست انجام‌شده'),
+    tile('کل پست‌ها', faNum(posts.length), 'از شروع برنامه'),
+    tile('فالوور اینستاگرام', lastIg ? faNum(lastIg) : '—', 'هدف: ' + faNum(8000)),
+    tile('میانگین نرخ ذخیره', avgRate != null ? faNum(Math.round(avgRate * 1000) / 10) + '٪' : '—', 'ذخیره تقسیم بر بازدید')));
+
+  // ── پست‌ها در هر هفته (ستونی)
+  root.append(h('div', { class: 'sec card chart-card' },
+    h('h2', { class: 'chart-h', text: 'پست‌های انجام‌شده در هر هفته' }),
+    h('p', { class: 'fine', text: 'روی هر ستون بزن تا ببینی از چند پست برنامه، چند تا انجام شده.' }),
+    legend(Object.values(PLATFORMS)),
+    weeklyChart(posts, week)));
+
+  // ── فالوور اینستاگرام تا هدف ۸٬۰۰۰
+  root.append(h('div', { class: 'sec card chart-card' },
+    h('h2', { class: 'chart-h', text: 'فالوورهای اینستاگرام تا هدف ۸٬۰۰۰' }),
+    legend([{ name: 'فالوور واقعی', color: PLATFORMS.instagram.color }, { name: 'مسیر هدف', color: '#898781', dash: true }]),
+    followersChart(ig),
+    followersForm()));
+
+  // ── بازدید ویدیوها
+  root.append(h('div', { class: 'sec card chart-card' },
+    h('h2', { class: 'chart-h', text: 'بازدید هر ویدیوی اینستاگرام' }),
+    viewsBars()));
+
+  // ── آمار هر پست (جدول)
+  root.append(statsTable());
+}
+
+function tile(label, value, sub) {
+  return h('div', { class: 'tile' }, h('span', { class: 'tile-l', text: label }), h('b', { class: 'tile-v', text: value }), h('span', { class: 'tile-s', text: sub }));
+}
+
+function weeklyChart(posts, current) {
+  const W = 660, H = 230, padR = 36, padL = 8, padT = 12, padB = 38;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const keys = Object.keys(PLATFORMS);
+  const counts = {};
+  for (let w = 1; w <= TOTAL_WEEKS; w++) counts[w] = Object.fromEntries(keys.map((k) => [k, posts.filter((x) => x.platform === k && weekOf(x.date) === w).length]));
+  const maxY = Math.max(3, ...Object.values(counts).flatMap((c) => Object.values(c)));
+  const y = (v) => padT + plotH - (v / maxY) * plotH;
+  const band = plotW / TOTAL_WEEKS;
+  const bw = Math.min(12, (band - 12) / 3);
+  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'img', 'aria-label': 'تعداد پست‌های انجام‌شده در هر هفته، به تفکیک بستر' });
+  for (let v = 0; v <= maxY; v++) {
+    svg.append(sv('line', { x1: padL, x2: padL + plotW, y1: y(v), y2: y(v), class: v === 0 ? 'axis' : 'grid' }));
+    svg.append(sv('text', { x: W - padR + 8, y: y(v) + 4, class: 'tick', 'text-anchor': 'start' }, faNum(v)));
+  }
+  for (let w = 1; w <= TOTAL_WEEKS; w++) {
+    // هفته‌ی ۱ سمت راست (جهت خواندن فارسی)
+    const bx = padL + plotW - w * band;
+    if (w === current) svg.append(sv('rect', { x: bx + 1, y: padT, width: band - 2, height: plotH, class: 'now', rx: 6 }));
+    const gx = bx + (band - (bw * 3 + 4)) / 2;
+    keys.slice().reverse().forEach((k, i) => {
+      const v = counts[w][k];
+      const x = gx + i * (bw + 2);
+      if (v > 0) svg.append(sv('path', { d: colPath(x, y(v), bw, y(0)), fill: PLATFORMS[k].color }));
+      const hit = sv('rect', { x: x - 1, y: padT, width: bw + 2, height: plotH, class: 'hit' });
+      bindTip(hit, [
+        { text: `${faNum(v)} از ${faNum(plannedIn(w, k))}` },
+        { text: PLATFORMS[k].name, color: PLATFORMS[k].color },
+        { text: `هفته‌ی ${faNum(w)}` },
+      ]);
+      svg.append(hit);
+    });
+    svg.append(sv('text', { x: bx + band / 2, y: H - padB + 18, class: 'tick' + (w === current ? ' tick-now' : ''), 'text-anchor': 'middle' }, faNum(w)));
+  }
+  svg.append(sv('text', { x: padL + plotW / 2, y: H - 4, class: 'tick', 'text-anchor': 'middle' }, 'هفته'));
+  return h('div', { class: 'chart-wrap' }, svg);
+}
+
+function followersChart(ig) {
+  const W = 660, H = 240, padR = 62, padL = 8, padT = 14, padB = 30;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const d0 = PLAN_START, d1 = PLAN_START + (TOTAL_WEEKS * 7 - 1) * DAY;
+  const t = (iso) => (Date.parse(iso + 'T00:00:00Z') - d0) / (d1 - d0);
+  const x = (iso) => padL + plotW - Math.max(0, Math.min(1, t(iso))) * plotW; // شروع سمت راست
+  const vals = ig.map((f) => f.instagram);
+  const lo = Math.floor(Math.min(4000, ...vals) / 1000) * 1000;
+  const hi = Math.ceil(Math.max(8000, ...vals) / 1000) * 1000;
+  const yv = (v) => padT + plotH - ((v - lo) / (hi - lo)) * plotH;
+  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'img', 'aria-label': 'فالوورهای اینستاگرام در برابر مسیر هدف' });
+  for (let v = lo; v <= hi; v += 1000) {
+    svg.append(sv('line', { x1: padL, x2: padL + plotW, y1: yv(v), y2: yv(v), class: v === lo ? 'axis' : 'grid' }));
+    svg.append(sv('text', { x: W - padR + 16, y: yv(v) + 4, class: 'tick', 'text-anchor': 'start' }, faNum(v)));
+  }
+  // مسیر هدف: ۴٬۰۰۰ → ۴٬۸۰۰ (هفته‌ی ۴) → ۶٬۱۰۰ (هفته‌ی ۸) → ۸٬۰۰۰ (هفته‌ی ۱۳)
+  const target = [['2026-09-26', 4000], ['2026-10-23', 4800], ['2026-11-20', 6100], ['2026-12-25', 8000]];
+  svg.append(sv('polyline', { points: target.map(([d, v]) => `${x(d)},${yv(v)}`).join(' '), class: 'target' }));
+  target.slice(1).forEach(([d, v]) => {
+    const c = sv('circle', { cx: x(d), cy: yv(v), r: 4, class: 'target-dot' });
+    bindTip(c, [{ text: faNum(v) }, { text: 'هدف ' + faDate(d, { day: 'numeric', month: 'long' }), color: '#898781' }]);
+    svg.append(c);
+  });
+  [['2026-09-26', 'مهر'], ['2026-10-23', 'آبان'], ['2026-11-22', 'آذر'], ['2026-12-22', 'دی']].forEach(([d, m]) =>
+    svg.append(sv('text', { x: x(d), y: H - 8, class: 'tick', 'text-anchor': 'middle' }, m)));
+  if (ig.length) {
+    const pts = ig.map((f) => [x(f.date), yv(f.instagram)]);
+    if (pts.length > 1) svg.append(sv('polyline', { points: pts.map((p) => p.join(',')).join(' '), class: 'actual', stroke: PLATFORMS.instagram.color }));
+    ig.forEach((f, i) => {
+      const c = sv('circle', { cx: pts[i][0], cy: pts[i][1], r: 4.5, fill: PLATFORMS.instagram.color, class: 'dot' });
+      bindTip(c, [{ text: faNum(f.instagram) + ' فالوور' }, { text: faDate(f.date, { day: 'numeric', month: 'long' }), color: PLATFORMS.instagram.color }]);
+      svg.append(c);
+    });
+    const lp = pts[pts.length - 1];
+    svg.append(sv('text', { x: lp[0] - 8, y: lp[1] - 10, class: 'val', 'text-anchor': 'end' }, faNum(ig[ig.length - 1].instagram)));
+  }
+  return h('div', { class: 'chart-wrap' }, svg,
+    !ig.length && h('p', { class: 'fine', style: 'margin-top:6px', text: 'هنوز عددی ثبت نشده. هر هفته تعداد فالوورت را پایین همین نمودار بنویس.' }));
+}
+
+function followersForm() {
+  const igIn = h('input', { type: 'number', inputmode: 'numeric', min: '0', placeholder: 'مثلاً ۴۱۲۰', 'aria-label': 'فالوور اینستاگرام' });
+  const liIn = h('input', { type: 'number', inputmode: 'numeric', min: '0', placeholder: 'اختیاری', 'aria-label': 'دنبال‌کننده‌ی لینکدین' });
+  const btn = h('button', {
+    class: 'btn rose', type: 'button',
+    onclick: async () => {
+      const igv = parseInt(igIn.value, 10);
+      const liv = parseInt(liIn.value, 10);
+      if (!(igv > 0)) { toast('عدد فالوور اینستاگرام را بنویس'); igIn.focus(); return; }
+      btn.disabled = true;
+      const date = tehranToday();
+      const ok = await act((A) => {
+        A.followers = A.followers.filter((f) => f.date !== date);
+        A.followers.push({ date, instagram: igv, linkedin: liv > 0 ? liv : null });
+        A.followers.sort((a, b) => a.date.localeCompare(b.date));
+      }, `فالوور ${date}`, 'ثبت شد');
+      btn.disabled = false;
+      if (ok) route();
+    },
+  }, 'ثبت امروز');
+  return h('div', { class: 'num-form' },
+    h('label', null, h('span', { text: 'فالوور اینستاگرام امروز' }), igIn),
+    h('label', null, h('span', { text: 'لینکدین' }), liIn),
+    btn);
+}
+
+function viewsBars() {
+  const rows = manifest.entries
+    .filter((e) => e.type === 'instagram')
+    .map((e) => ({ e, st: activity && activity.stats[e.id] }))
+    .filter((r) => r.st && r.st.views > 0)
+    .sort((a, b) => a.e.date.localeCompare(b.e.date));
+  if (!rows.length) return h('p', { class: 'fine', text: 'بعد از اینکه آمار اولین ویدیو را در جدول پایین بنویسی، اینجا نمودارش می‌آید.' });
+  const max = Math.max(...rows.map((r) => r.st.views));
+  return h('div', { class: 'hbars' }, rows.map(({ e, st }) => {
+    const bar = h('div', { class: 'hb-track' }, h('div', { class: 'hb-fill', style: `width:${Math.max(2, (st.views / max) * 100)}%;background:${PLATFORMS.instagram.color}` }));
+    const row = h('div', { class: 'hb-row' },
+      h('span', { class: 'hb-l', text: faDate(e.date, { day: 'numeric', month: 'long' }) }),
+      bar,
+      h('span', { class: 'hb-v', text: faNum(st.views) }));
+    bindTip(row, [
+      { text: faNum(st.views) + ' بازدید' },
+      { text: `ذخیره ${faNum(st.saves || 0)} — اشتراک ${faNum(st.shares || 0)}`, color: PLATFORMS.instagram.color },
+    ]);
+    return row;
+  }));
+}
+
+function statsTable() {
+  const entries = manifest.entries.filter((e) => e.type === 'instagram' || e.type === 'linkedin').sort((a, b) => b.date.localeCompare(a.date));
+  const wrap = h('div', { class: 'sec' }, h('div', { class: 'sec-h' }, h('h2', { text: 'آمار هر پست' }), h('span', { class: 'rule' })));
+  if (!entries.length) {
+    wrap.append(empty('بعد از اولین پست، اینجا آمارش را می‌نویسی: بازدید، لایک، ذخیره، اشتراک و کامنت.'));
+    return wrap;
+  }
+  const FIELDS = {
+    instagram: [['views', 'بازدید'], ['likes', 'لایک'], ['saves', 'ذخیره'], ['shares', 'اشتراک'], ['comments', 'کامنت'], ['follows', 'فالوور جدید']],
+    linkedin: [['views', 'دیده‌شدن'], ['likes', 'واکنش'], ['comments', 'کامنت'], ['shares', 'بازنشر']],
+  };
+  for (const e of entries) {
+    const platform = e.type;
+    const st = (activity && activity.stats[e.id]) || {};
+    const inputs = {};
+    const row = h('div', { class: 'stat-row' },
+      h('div', { class: 'sr-h' },
+        h('span', { class: 'plat' }, h('i', { style: 'background:' + PLATFORMS[platform].color, 'aria-hidden': 'true' }), PLATFORMS[platform].name),
+        h('b', { text: faDate(e.date, { weekday: 'long', day: 'numeric', month: 'long' }) }),
+        st.views > 0 && st.saves != null && platform === 'instagram' && h('span', { class: 'pill', text: 'نرخ ذخیره ' + faNum(Math.round((st.saves / st.views) * 1000) / 10) + '٪' })),
+      h('div', { class: 'sr-f' }, FIELDS[platform].map(([k, label]) => {
+        inputs[k] = h('input', { type: 'number', inputmode: 'numeric', min: '0', value: st[k] != null ? String(st[k]) : null, 'aria-label': label });
+        return h('label', null, h('span', { text: label }), inputs[k]);
+      })),
+      h('button', {
+        class: 'btn small', type: 'button',
+        onclick: async (ev) => {
+          const b = ev.currentTarget;
+          const vals = {};
+          for (const [k, el] of Object.entries(inputs)) if (el.value !== '') vals[k] = Math.max(0, parseInt(el.value, 10) || 0);
+          b.disabled = true;
+          const ok = await act((A) => { A.stats[e.id] = { ...(A.stats[e.id] || {}), ...vals, updatedAt: new Date().toISOString() }; }, `آمار ${e.id}`, 'آمار ثبت شد');
+          b.disabled = false;
+          if (ok) route();
+        },
+      }, 'ثبت آمار'));
+    wrap.append(row);
+  }
+  return wrap;
+}
+
 /* ───────── اتصال (توکن گیت‌هاب برای فرستادن نظرها) ───────── */
 
 function openSettings(needed) {
@@ -578,6 +1004,12 @@ function openSettings(needed) {
       h('h2', { text: 'اتصال برای فرستادن نظرها' }),
       h('p', { class: 'why-needed', text: '' }),
       h('p', { text: 'کد اتصال را یک بار روی هر دستگاه اینجا بگذار. فقط روی همین دستگاه نگه داشته می‌شود.' }),
+      h('ol', { class: 'steps' },
+        h('li', null, 'در گیت‌هاب وارد حسابت شو و ', h('a', { href: 'https://github.com/settings/personal-access-tokens/new', target: '_blank', rel: 'noopener noreferrer' }, 'این صفحه'), ' را باز کن.'),
+        h('li', { text: 'اسم: «دفترچه». تاریخ انقضا: یک سال.' }),
+        h('li', { text: 'Repository access ← Only select repositories ← rojan-content-studio' }),
+        h('li', { text: 'Permissions ← Repository permissions ← Contents ← Read and write' }),
+        h('li', { text: 'دکمه‌ی Generate token را بزن، کدی را که با github_pat_ شروع می‌شود کپی کن و اینجا بگذار.' })),
       input,
       h('div', { class: 'actions' },
         h('button', { class: 'btn primary', type: 'button', onclick: () => { const v = input.value.trim(); if (!v) return; store.set(LS.token, v); input.value = ''; dlg.close(); toast('وصل شد'); renderFoot(); } }, 'ذخیره'),
@@ -604,6 +1036,7 @@ function hashFor(s) {
 function badgeFor(id) {
   const sent = getSent();
   if (id === 'linkedin') return manifest.entries.filter((e) => e.type === 'linkedin' && e.status === 'ready' && !sent['ap-' + e.id]).length;
+  if (id === 'instagram') return manifest.entries.filter((e) => e.type === 'instagram' && e.date === tehranToday() && !sent['ap-' + e.id]).length;
   if (id === 'article') return manifest.entries.filter((e) => e.type === 'article' && ['ready', 'draft', 'revised'].includes(e.status) && !sent['ap-' + e.id]).length;
   return 0;
 }
@@ -679,7 +1112,7 @@ function moveDot(hop) {
   dotRaf = requestAnimationFrame(frame);
 }
 
-const VIEWS = { news: viewNews, instagram: viewInstagram, linkedin: viewLinkedin, article: viewArticle };
+const VIEWS = { news: viewNews, instagram: viewInstagram, linkedin: viewLinkedin, progress: viewProgress, article: viewArticle };
 let routeSeq = 0;
 
 async function route() {
