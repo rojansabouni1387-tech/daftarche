@@ -488,20 +488,39 @@ async function viewLinkedin(root) {
   root.append(sec);
 }
 
+// متن + هشتگ را یکی می‌کند — همین رشته کپی می‌شود و همین توی لینکدین باز می‌شود،
+// یعنی چیزی که می‌رود توی باکس، همان چیزی است که پست می‌شود.
+function liPayload(text, hashtags) {
+  return hashtags && hashtags.length ? text + '\n\n' + hashtags.join(' ') : text;
+}
+function liOpenUrl(text, hashtags) {
+  return 'https://www.linkedin.com/feed/?shareActive=true&text=' + encodeURIComponent(liPayload(text, hashtags));
+}
+
+// یک بلوک زبان با دو دکمه‌ی خودش: «کپی متن آماده» و «باز کردن لینکدین» — هر دو
+// متن + هشتگ را با هم می‌برند، برای همین بعد از باز شدن فقط دکمه‌ی Post لازم است.
+function liTextBlock(title, text, hashtags, cls) {
+  if (!text) return null;
+  return h('div', { class: 'block' },
+    h('div', { class: 'block-h' },
+      h('h4', { text: title }),
+      h('div', { class: 'block-actions' },
+        copyBtn(liPayload(text, hashtags), 'کپی متن آماده'),
+        h('a', { class: 'btn small', href: liOpenUrl(text, hashtags), target: '_blank', rel: 'noopener noreferrer' }, 'باز کردن لینکدین'))),
+    h('div', { class: cls, text }));
+}
+
 function liCard(p) {
-  const full = [p.text_en, p.text_fa].filter(Boolean).join('\n\n');
   const box = commentBox(p.id, 'linkedin', 'چه چیزی را دوست نداشتی یا باید عوض شود؟');
   const actions = postButtons(p, 'linkedin', () => [
-    copyBtn(full, 'کپی متن'),
-    h('a', { class: 'btn', href: 'https://www.linkedin.com/feed/?shareActive=true&text=' + encodeURIComponent(full), target: '_blank', rel: 'noopener noreferrer' }, 'باز کردن لینکدین'),
     h('button', { class: 'btn', type: 'button', onclick: () => { box.hidden = !box.hidden; if (!box.hidden) box.querySelector('textarea').focus(); } }, 'نظر روژان'),
   ]);
   return h('article', { class: 'card' },
     h('div', { class: 'meta' }, h('span', { class: 'pill', text: faDate(p.date) }), statusPill(p.status), p.lang === 'bi' && h('span', { class: 'pill', text: 'دوزبانه' })),
     h('h3', { text: p.title }),
     p.angle && h('p', { class: 'why', text: p.angle }),
-    block('متن پست', p.text_en, 'post ltr', true),
-    block('نسخه‌ی فارسی', p.text_fa, 'post', true),
+    liTextBlock('متن فارسی — این را اول پست کن', p.text_fa, p.hashtags, 'post'),
+    liTextBlock('English — post second', p.text_en, p.hashtags, 'post ltr'),
     (p.hashtags || []).length && h('div', { class: 'block' }, h('div', { class: 'tags' }, p.hashtags.map((t) => h('span', { text: t })))),
     sourcesEl(p.sources),
     actions,

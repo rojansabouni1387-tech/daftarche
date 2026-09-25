@@ -323,3 +323,4 @@ input[type="number"]:focus{outline:none;border-color:var(--rose-deep);box-shadow
   .tile-v{font-size:22px}
   .hb-row{grid-template-columns:70px minmax(0,1fr) 54px}
 }
+.block-actions{display:flex;flex-wrap:wrap;gap:6px}
